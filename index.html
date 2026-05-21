@@ -179,8 +179,8 @@ tr:hover td{background:rgba(255,255,255,.03);}
           <input type="date" id="f-date">
         </div>
         <div class="form-group">
-          <label>Project / Job Name</label>
-          <input type="text" id="f-project" placeholder="e.g. Hendersonville Hospital">
+          <label>Project Number</label>
+          <input type="text" id="f-project" placeholder="e.g. 2024-01-0786">
         </div>
       </div>
       <div class="form-grid" style="margin-bottom:16px;">
@@ -220,7 +220,8 @@ tr:hover td{background:rgba(255,255,255,.03);}
       <div class="form-grid three" style="margin-bottom:16px;">
         <div class="form-group">
           <label>Truck *</label>
-          <select id="f-truck"><option value="">Select truck…</option></select>
+          <select id="f-truck" onchange="truckOther()"><option value="">Select truck…</option></select>
+          <input type="text" class="other-input" id="f-truck-other" placeholder="Enter rental/other truck number…">
         </div>
         <div class="form-group">
           <label>Trailer</label>
@@ -366,7 +367,10 @@ tr:hover td{background:rgba(255,255,255,.03);}
       <input type="text" class="other-input" id="em-driver-other" placeholder="Enter driver name…">
     </div>
     <div class="form-grid three" style="margin-bottom:14px;">
-      <div class="form-group"><label>Truck</label><select id="em-truck"></select></div>
+      <div class="form-group"><label>Truck</label>
+        <select id="em-truck" onchange="editTruckOther()"><option value="">Select truck…</option></select>
+        <input type="text" class="other-input" id="em-truck-other" placeholder="Enter rental/other truck number…">
+      </div>
       <div class="form-group"><label>Trailer</label><select id="em-trailer"></select></div>
       <div class="form-group"><label>Item Delivered</label>
         <select id="em-item">
@@ -457,7 +461,7 @@ async function loadDropdowns(){
   ]);
   ['f-truck','em-truck'].forEach(id=>{
     const s=document.getElementById(id);if(!s)return;
-    s.innerHTML='<option value="">Select truck…</option>'+trucks.map(t=>`<option>${esc(t.unit_number)}</option>`).join('');
+    s.innerHTML='<option value="">Select truck…</option>'+trucks.map(t=>`<option>${esc(t.unit_number)}</option>`).join('')+'<option value="Other">Other / Rental</option>';
   });
   ['f-trailer','em-trailer'].forEach(id=>{
     const s=document.getElementById(id);if(!s)return;
@@ -474,6 +478,16 @@ function driverOther(){
 function editDriverOther(){
   const v=document.getElementById('em-driver').value;
   const o=document.getElementById('em-driver-other');
+  v==='Other'?o.classList.add('vis'):o.classList.remove('vis');
+}
+function truckOther(){
+  const v=document.getElementById('f-truck').value;
+  const o=document.getElementById('f-truck-other');
+  v==='Other'?o.classList.add('vis'):o.classList.remove('vis');
+}
+function editTruckOther(){
+  const v=document.getElementById('em-truck').value;
+  const o=document.getElementById('em-truck-other');
   v==='Other'?o.classList.add('vis'):o.classList.remove('vis');
 }
 
@@ -507,10 +521,11 @@ async function submitDelivery(){
   const date=document.getElementById('f-date').value;
   let driver=document.getElementById('f-driver').value;
   if(driver==='Other')driver=document.getElementById('f-driver-other').value.trim();
-  const truck=document.getElementById('f-truck').value;
+  let truck=document.getElementById('f-truck').value;
+  if(truck==='Other')truck=document.getElementById('f-truck-other').value.trim();
   if(!date){toast('Date is required.','err');return;}
   if(!driver){toast('Please select or enter a driver.','err');return;}
-  if(!truck){toast('Please select a truck.','err');return;}
+  if(!truck){toast('Please select or enter a truck.','err');return;}
   const btn=document.getElementById('submit-btn');
   btn.disabled=true;btn.textContent='Submitting…';
   try{
@@ -534,6 +549,8 @@ function clearForm(){
   ['f-driver','f-truck','f-trailer','f-item'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('f-driver-other').classList.remove('vis');
   document.getElementById('f-driver-other').value='';
+  document.getElementById('f-truck-other').classList.remove('vis');
+  document.getElementById('f-truck-other').value='';
   onTimeVal=null;
   document.getElementById('ot-yes').classList.remove('active');
   document.getElementById('ot-no').classList.remove('active');
@@ -578,7 +595,16 @@ async function openEditModal(id){
   const r=rows[0];
   document.getElementById('em-date').value=r.delivery_date||'';
   document.getElementById('em-project').value=r.project||'';
-  document.getElementById('em-truck').value=r.truck||'';
+  // Handle truck — check if it's a regular truck or other/rental
+  const regularTrucks=Array.from(document.getElementById('em-truck').options).map(o=>o.value).filter(v=>v&&v!=='Other');
+  if(regularTrucks.includes(r.truck)){
+    document.getElementById('em-truck').value=r.truck;
+    document.getElementById('em-truck-other').classList.remove('vis');
+  }else if(r.truck){
+    document.getElementById('em-truck').value='Other';
+    document.getElementById('em-truck-other').value=r.truck;
+    document.getElementById('em-truck-other').classList.add('vis');
+  }
   document.getElementById('em-trailer').value=r.trailer||'';
   document.getElementById('em-item').value=r.item_delivered||'';
   document.getElementById('em-comments').value=r.comments||'';
@@ -602,7 +628,8 @@ async function saveEdit(){
   const date=document.getElementById('em-date').value;
   let driver=document.getElementById('em-driver').value;
   if(driver==='Other')driver=document.getElementById('em-driver-other').value.trim();
-  const truck=document.getElementById('em-truck').value;
+  let truck=document.getElementById('em-truck').value;
+  if(truck==='Other')truck=document.getElementById('em-truck-other').value.trim();
   if(!date){toast('Date required.','err');return;}
   if(!driver){toast('Driver required.','err');return;}
   if(!truck){toast('Truck required.','err');return;}
