@@ -229,7 +229,7 @@ tr:hover td{background:rgba(255,255,255,.03);}
         </div>
         <div class="form-group">
           <label>Trailer</label>
-          <select id="f-trailer"><option value="">None</option></select>
+          <input type="text" id="f-trailer" placeholder="Trailer # (optional)" maxlength="40">
         </div>
         <div class="form-group">
           <label>On Time Delivery?</label>
@@ -375,7 +375,7 @@ tr:hover td{background:rgba(255,255,255,.03);}
         <select id="em-truck" onchange="editTruckOther()"><option value="">Select truck…</option></select>
         <input type="text" class="other-input" id="em-truck-other" placeholder="Enter rental/other truck number…">
       </div>
-      <div class="form-group"><label>Trailer</label><select id="em-trailer"></select></div>
+      <div class="form-group"><label>Trailer</label><input type="text" id="em-trailer" placeholder="Trailer # (optional)" maxlength="40"></div>
       <div class="form-group"><label>Item Delivered</label>
         <select id="em-item">
           <option value="">Select…</option>
@@ -467,10 +467,7 @@ async function loadDropdowns(){
     const s=document.getElementById(id);if(!s)return;
     s.innerHTML='<option value="">Select truck…</option>'+trucks.map(t=>`<option>${esc(t.unit_number)}</option>`).join('')+'<option value="Other">Other / Rental</option>';
   });
-  ['f-trailer','em-trailer'].forEach(id=>{
-    const s=document.getElementById(id);if(!s)return;
-    s.innerHTML='<option value="">None</option>'+trailers.map(t=>`<option>${esc(t.trailer_number)}</option>`).join('');
-  });
+  // trailer fields are now free-text inputs — no population needed
 }
 
 // ─── DRIVER OTHER ──────────────────────────────────────
