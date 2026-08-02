@@ -121,6 +121,7 @@ tr:hover td{background:rgba(255,255,255,.03);}
 .mileage-card{background:var(--gun);border:1px solid var(--silver);border-radius:10px;padding:18px;}
 .mileage-truck{font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700;margin-bottom:12px;color:var(--gold);}
 .mileage-inputs{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;}
+.mileage-carry{font-size:12px;color:var(--gold);margin-bottom:8px;}
 .mileage-total{font-size:13px;color:var(--muted);}
 .mileage-total span{color:var(--green);font-weight:700;}
 
@@ -807,26 +808,42 @@ async function loadMatrix(){
 }
 
 // ─── MILEAGE ───────────────────────────────────────────
+function prevMonth(ms){
+  const[y,m]=ms.split('-').map(Number);
+  const d=new Date(y,m-2,1);
+  return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+function monthLabel(ms){
+  const[y,m]=ms.split('-').map(Number);
+  return new Date(y,m-1,1).toLocaleString('en-US',{month:'long'});
+}
 async function loadMileage(){
   const month=document.getElementById('mil-month').value;
   if(!month){toast('Select a month.','err');return;}
-  const[existing,activeTrucks]=await Promise.all([
+  const last=prevMonth(month);
+  const[existing,priorRows,activeTrucks]=await Promise.all([
     get('mileage',`?month=eq.${month}`),
+    get('mileage',`?month=eq.${last}`),
     get('trucks','?active=eq.true&order=unit_number.asc')
   ]);
   const map={};existing.forEach(m=>{map[m.truck]=m;});
+  const prior={};priorRows.forEach(m=>{prior[m.truck]=m;});
   const el=document.getElementById('mileage-content');
   const isAdmin=user.role==='admin';
   el.innerHTML=`<div class="mileage-grid">${activeTrucks.map(t=>{
     const m=map[t.unit_number]||{};
-    const miles=(m.ending_mileage&&m.starting_mileage)?m.ending_mileage-m.starting_mileage:null;
+    const p=prior[t.unit_number]||{};
+    const carried=(m.starting_mileage==null&&p.ending_mileage!=null)?p.ending_mileage:null;
+    const startVal=m.starting_mileage!=null?m.starting_mileage:(carried!=null?carried:'');
+    const miles=(m.ending_mileage!=null&&startVal!=='')?m.ending_mileage-startVal:null;
     const key=t.unit_number.replace(/[^a-z0-9]/gi,'_');
     return`<div class="mileage-card">
       <div class="mileage-truck">🚛 ${esc(t.unit_number)}</div>
       <div class="mileage-inputs">
-        <div class="form-group"><label>Start Mileage</label><input type="number" id="ms-${key}" value="${m.starting_mileage||''}" placeholder="0" ${isAdmin?'readonly style="opacity:.6;"':''}></div>
-        <div class="form-group"><label>End Mileage</label><input type="number" id="me-${key}" value="${m.ending_mileage||''}" placeholder="0" ${isAdmin?'readonly style="opacity:.6;"':''}></div>
+        <div class="form-group"><label>Start Mileage</label><input type="number" id="ms-${key}" value="${startVal}" placeholder="0" ${isAdmin?'readonly style="opacity:.6;"':''}></div>
+        <div class="form-group"><label>End Mileage</label><input type="number" id="me-${key}" value="${m.ending_mileage!=null?m.ending_mileage:''}" placeholder="0" ${isAdmin?'readonly style="opacity:.6;"':''}></div>
       </div>
+      ${carried!=null?`<div class="mileage-carry">↳ Carried over from ${monthLabel(last)} — press Save to lock it in</div>`:''}
       <div class="mileage-total">Total miles this month: <span>${miles!==null?miles.toLocaleString()+' mi':'not entered yet'}</span></div>
       ${!isAdmin?`<button class="btn btn-primary btn-sm" style="margin-top:12px;width:100%;" onclick="saveMileage('${esc(t.unit_number)}','${month}')">Save</button>`:''}
     </div>`;}).join('')}</div>
