@@ -827,6 +827,14 @@ function exportMatrix(){
     var cols = [];
     for (var j = 0; j < cells.length; j++) {
       var txt = (cells[j].innerText || '').split(',').join(';').split('\r').join('').split('\n').join(' ').split('\u2014').join('-').trim();
+      // First column, data rows only: append -01 cost code to job numbers
+      // Skip header row (PROJECT / JOB), truck total row, and (No Project)
+      if (j === 0 && i > 0 && txt !== 'PROJECT / JOB' && txt !== 'TRUCK TOTAL' && txt !== '(No Project)' && txt.length > 0) {
+        // Only append if not already ending in -01
+        if (!txt.match(/-01$/)) {
+          txt = txt + '-01';
+        }
+      }
       cols.push('"' + txt + '"');
     }
     lines.push(cols.join(','));
