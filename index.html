@@ -811,41 +811,39 @@ async function loadMatrix(){
 
 // ─── MILEAGE ───────────────────────────────────────────
 function exportMatrix(){
-  const from = document.getElementById('mx-from').value;
-  const to   = document.getElementById('mx-to').value;
-  const tbl  = document.querySelector('.matrix-table');
+  var from = document.getElementById('mx-from').value;
+  var to   = document.getElementById('mx-to').value;
+  var tbl  = document.querySelector('.matrix-table');
   if (!tbl) { toast('Run the matrix first.','err'); return; }
 
-  // Build CSV from the rendered table
-  const rows = tbl.querySelectorAll('tr');
-  const csvRows = [];
-  csvRows.push('TCB Metrics — Job Matrix Export');
-  csvRows.push('Date Range: ' + from + ' to ' + to);
-  csvRows.push('');
+  var lines = [];
+  lines.push('TCB Metrics - Job Matrix Export');
+  lines.push('Date Range: ' + from + ' to ' + to);
+  lines.push('');
 
-  rows.forEach(function(row) {
-    const cells = row.querySelectorAll('th, td');
-    const vals = [];
-    cells.forEach(function(cell) {
-      var text = (cell.innerText || '').split(',').join(';').split('\n').join(' ').trim();
-      vals.push('"' + text + '"');
-    });
-    csvRows.push(vals.join(','));
-  });
+  var rows = tbl.querySelectorAll('tr');
+  for (var i = 0; i < rows.length; i++) {
+    var cells = rows[i].querySelectorAll('th, td');
+    var cols = [];
+    for (var j = 0; j < cells.length; j++) {
+      var txt = (cells[j].innerText || '').split(',').join(';').split('\r').join('').split('\n').join(' ').split('\u2014').join('-').trim();
+      cols.push('"' + txt + '"');
+    }
+    lines.push(cols.join(','));
+  }
 
-  const csv = csvRows.join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
+  var csv = lines.join('\r\n');
+  var blob = new Blob(['\uFEFF' + csv], {type:'text/csv;charset=utf-8;'});
+  var url  = URL.createObjectURL(blob);
+  var a    = document.createElement('a');
   a.href     = url;
   a.download = 'TCB_JobMatrix_' + from + '_to_' + to + '.csv';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  toast('Job Matrix exported!', 'ok');
+  toast('Job Matrix exported!','ok');
 }
-
 
 function prevMonth(ms){
   const[y,m]=ms.split('-').map(Number);
