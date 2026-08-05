@@ -827,14 +827,13 @@ function exportMatrix(){
     const cells = row.querySelectorAll('th, td');
     const vals = [];
     cells.forEach(function(cell) {
-      var text = cell.innerText.split(',').join(';').split('\n').join(' ').trim();
+      var text = (cell.innerText || '').split(',').join(';').split('\n').join(' ').trim();
       vals.push('"' + text + '"');
     });
     csvRows.push(vals.join(','));
   });
 
-  const csv = csvRows.join('
-');
+  const csv = csvRows.join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
