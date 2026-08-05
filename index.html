@@ -288,6 +288,7 @@ tr:hover td{background:rgba(255,255,255,.03);}
           <span class="filter-lbl">From:</span><input type="date" id="mx-from">
           <span class="filter-lbl">To:</span><input type="date" id="mx-to">
           <button class="btn btn-primary btn-sm" onclick="loadMatrix()">Run</button>
+          <button class="btn btn-sm" id="matrix-export-btn" onclick="exportMatrix()" style="display:none;background:var(--gold);color:#000;font-weight:700;margin-left:8px;">&#8595; Export Excel</button>
         </div>
       </div>
       <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">Replaces your monthly VLOOKUP — shows how many times each job used each truck.</p>
@@ -781,13 +782,14 @@ async function loadMatrix(){
   if(from>to){toast('Start date must be before end date.','err');return;}
   const rows=await get('deliveries',`?delivery_date=gte.${from}&delivery_date=lte.${to}&order=delivery_date.asc`);
   const el=document.getElementById('matrix-content');
-  if(!rows.length){el.innerHTML='<p style="color:var(--muted);">No deliveries in this range.</p>';return;}
+  if(!rows.length){document.getElementById('matrix-export-btn').style.display='none';el.innerHTML='<p style="color:var(--muted);">No deliveries in this range.</p>';return;}
   const jobs=[...new Set(rows.map(r=>r.project||'(No Project)'))].sort();
   const truckList=[...new Set(rows.map(r=>r.truck))].sort();
   const matrix={};
   jobs.forEach(j=>{matrix[j]={};truckList.forEach(t=>{matrix[j][t]=0;});});
   rows.forEach(r=>{const j=r.project||'(No Project)';matrix[j][r.truck]=(matrix[j][r.truck]||0)+1;});
   const maxVal=Math.max(...jobs.flatMap(j=>truckList.map(t=>matrix[j][t])),1);
+  document.getElementById('matrix-export-btn').style.display='inline-block';
   el.innerHTML=`<div class="matrix-wrap"><table class="matrix-table">
     <thead><tr><th>Project / Job</th>${truckList.map(t=>`<th>${esc(t)}</th>`).join('')}<th>Total</th></tr></thead>
     <tbody>${jobs.map(j=>{
@@ -808,6 +810,45 @@ async function loadMatrix(){
 }
 
 // ─── MILEAGE ───────────────────────────────────────────
+function exportMatrix(){
+  const from = document.getElementById('mx-from').value;
+  const to   = document.getElementById('mx-to').value;
+  const tbl  = document.querySelector('.matrix-table');
+  if (!tbl) { toast('Run the matrix first.','err'); return; }
+
+  // Build CSV from the rendered table
+  const rows = tbl.querySelectorAll('tr');
+  const csvRows = [];
+  csvRows.push('TCB Metrics — Job Matrix Export');
+  csvRows.push('Date Range: ' + from + ' to ' + to);
+  csvRows.push('');
+
+  rows.forEach(function(row) {
+    const cells = row.querySelectorAll('th, td');
+    const vals = [];
+    cells.forEach(function(cell) {
+      var text = cell.innerText.replace(/,/g, ';').replace(/
+/g, ' ').trim();
+      vals.push('"' + text + '"');
+    });
+    csvRows.push(vals.join(','));
+  });
+
+  const csv = csvRows.join('
+');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'TCB_JobMatrix_' + from + '_to_' + to + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('Job Matrix exported!', 'ok');
+}
+
+
 function prevMonth(ms){
   const[y,m]=ms.split('-').map(Number);
   const d=new Date(y,m-2,1);
