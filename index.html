@@ -122,6 +122,14 @@ tr:hover td{background:rgba(255,255,255,.03);}
 .mileage-truck{font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700;margin-bottom:12px;color:var(--gold);}
 .mileage-inputs{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;}
 .mileage-total{font-size:13px;color:var(--muted);}
+.mileage-inputs>.form-group{min-width:0;}
+.mileage-inputs input{width:100%;min-width:0;box-sizing:border-box;}
+.mileage-carry{font-size:12px;color:var(--gold);margin-bottom:8px;}
+.mileage-carry.gap{color:var(--amber);}
+.mil-alert{background:rgba(239,68,68,.12);border:1px solid var(--red);color:#fca5a5;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:14px;line-height:1.5;}
+.mil-alert b{color:#fff;}
+.mil-alert a{color:var(--gold);cursor:pointer;text-decoration:underline;}
+#mil-nav-alert{display:none;background:var(--red);color:#fff;text-align:center;padding:8px 12px;font-size:14px;font-weight:600;cursor:pointer;}
 .mileage-total span{color:var(--green);font-weight:700;}
 
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;align-items:center;justify-content:center;}
@@ -177,6 +185,7 @@ tr:hover td{background:rgba(255,255,255,.03);}
       <button class="nav-logout" onclick="doLogout()">Logout</button>
     </div>
   </nav>
+  <div id="mil-nav-alert" onclick="showTab('mileage')"></div>
 
   <!-- LOG DELIVERY -->
   <div class="page active" id="page-log">
@@ -311,7 +320,8 @@ tr:hover td{background:rgba(255,255,255,.03);}
           <button class="btn btn-primary btn-sm" onclick="loadMileage()">Load</button>
         </div>
       </div>
-      <p style="color:var(--muted);font-size:13px;margin-bottom:20px;">Andy enters start/end mileage for each truck at end of month. David sees the totals.</p>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:20px;">Enter each truck's odometer at the end of every month. Start mileage fills in automatically from the last saved month.</p>
+      <div id="mil-alert"></div>
       <div id="mileage-content"><p style="color:var(--muted);">Select a month and click Load.</p></div>
     </div>
   </div>
@@ -455,6 +465,7 @@ async function doLogin(){
     document.getElementById('f-date').value=today();
     await loadDropdowns();
     showTab('log');
+    checkMissingMileage();
   }catch(e){document.getElementById('login-err').style.display='block';}
 }
 function doLogout(){
@@ -843,45 +854,128 @@ function exportMatrix(){
 }
 
 // ─── MILEAGE ───────────────────────────────────────────
+function prevMonth(ms){
+  const[y,m]=ms.split('-').map(Number);
+  const d=new Date(y,m-2,1);
+  return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+function monthLabel(ms){
+  const[y,m]=ms.split('-').map(Number);
+  return new Date(y,m-1,1).toLocaleString('en-US',{month:'long',year:'numeric'});
+}
+
+// Finds every finished month (since tracking began) where a truck is missing start or end mileage
+async function findMissingMonths(){
+  const[rows,trucks]=await Promise.all([
+    get('mileage','?select=truck,month,starting_mileage,ending_mileage'),
+    get('trucks','?active=eq.true&select=unit_number')
+  ]);
+  if(!rows.length)return[];
+  const first=rows.map(r=>r.month).sort()[0];
+  const lastDone=prevMonth(monthStr());
+  const done={};
+  rows.forEach(r=>{if(r.starting_mileage!=null&&r.ending_mileage!=null)(done[r.month]=done[r.month]||new Set()).add(r.truck);});
+  const missing=[];
+  for(let m=lastDone;m>=first;m=prevMonth(m)){
+    const have=done[m]||new Set();
+    const short=trucks.filter(t=>!have.has(t.unit_number)).length;
+    if(short)missing.push({month:m,short});
+  }
+  return missing.reverse();
+}
+
+async function checkMissingMileage(){
+  try{
+    const missing=await findMissingMonths();
+    const bar=document.getElementById('mil-nav-alert');
+    if(missing.length){
+      bar.textContent=`⚠ Mileage missing for ${missing.map(x=>monthLabel(x.month)).join(', ')}. Click here to enter it.`;
+      bar.style.display='block';
+    }else bar.style.display='none';
+    return missing;
+  }catch(e){return[];}
+}
+
 async function loadMileage(){
   const month=document.getElementById('mil-month').value;
   if(!month){toast('Select a month.','err');return;}
-  const[existing,activeTrucks]=await Promise.all([
+  const[existing,history,activeTrucks,missing]=await Promise.all([
     get('mileage',`?month=eq.${month}`),
-    get('trucks','?active=eq.true&order=unit_number.asc')
+    get('mileage',`?month=lt.${month}&ending_mileage=not.is.null&order=month.desc`),
+    get('trucks','?active=eq.true&order=unit_number.asc'),
+    checkMissingMileage()
   ]);
   const map={};existing.forEach(m=>{map[m.truck]=m;});
+  // most recent earlier month with an ending reading, per truck
+  const prior={};history.forEach(m=>{if(!prior[m.truck])prior[m.truck]=m;});
+  const expectedPrev=prevMonth(month);
+
+  const alertEl=document.getElementById('mil-alert');
+  alertEl.innerHTML=missing.length?`<div class="mil-alert"><b>Missing mileage:</b> ${missing.map(x=>`<a onclick="document.getElementById('mil-month').value='${x.month}';loadMileage();">${monthLabel(x.month)}</a> (${x.short} truck${x.short>1?'s':''})`).join(' &nbsp;·&nbsp; ')}<br>Each month's start depends on the month before. Fill these in oldest first.</div>`:'';
+
   const el=document.getElementById('mileage-content');
-  const isAdmin=user.role==='admin';
   el.innerHTML=`<div class="mileage-grid">${activeTrucks.map(t=>{
     const m=map[t.unit_number]||{};
-    const miles=(m.ending_mileage&&m.starting_mileage)?m.ending_mileage-m.starting_mileage:null;
+    const p=prior[t.unit_number];
+    const carried=(m.starting_mileage==null&&p)?p.ending_mileage:null;
+    const startVal=m.starting_mileage!=null?m.starting_mileage:(carried!=null?carried:'');
+    const miles=(m.ending_mileage!=null&&startVal!=='')?m.ending_mileage-startVal:null;
     const key=t.unit_number.replace(/[^a-z0-9]/gi,'_');
+    let note='';
+    if(carried!=null){
+      note=p.month===expectedPrev
+        ?`<div class="mileage-carry">↳ Carried over from ${monthLabel(p.month)}. Press Save to lock it in.</div>`
+        :`<div class="mileage-carry gap">⚠ Carried over from ${monthLabel(p.month)}. Months in between are missing.</div>`;
+    }
     return`<div class="mileage-card">
       <div class="mileage-truck">🚛 ${esc(t.unit_number)}</div>
       <div class="mileage-inputs">
-        <div class="form-group"><label>Start Mileage</label><input type="number" id="ms-${key}" value="${m.starting_mileage||''}" placeholder="0" ${isAdmin?'readonly style="opacity:.6;"':''}></div>
-        <div class="form-group"><label>End Mileage</label><input type="number" id="me-${key}" value="${m.ending_mileage||''}" placeholder="0" ${isAdmin?'readonly style="opacity:.6;"':''}></div>
+        <div class="form-group"><label>Start Mileage</label><input type="number" id="ms-${key}" value="${startVal}" placeholder="0"></div>
+        <div class="form-group"><label>End Mileage</label><input type="number" id="me-${key}" value="${m.ending_mileage!=null?m.ending_mileage:''}" placeholder="0"></div>
       </div>
+      ${note}
       <div class="mileage-total">Total miles this month: <span>${miles!==null?miles.toLocaleString()+' mi':'not entered yet'}</span></div>
-      ${!isAdmin?`<button class="btn btn-primary btn-sm" style="margin-top:12px;width:100%;" onclick="saveMileage('${esc(t.unit_number)}','${month}')">Save</button>`:''}
+      <button class="btn btn-secondary btn-sm" style="margin-top:12px;width:100%;" onclick="saveMileage('${esc(t.unit_number)}','${month}')">Save This Truck</button>
     </div>`;}).join('')}</div>
-  ${isAdmin?`<p style="margin-top:16px;font-size:13px;color:var(--muted);">Mileage is entered by the dispatcher. Export the full report from the Dashboard.</p>`:''}`;
+  <button class="btn btn-primary" style="margin-top:20px;width:100%;font-size:16px;padding:14px;" onclick="saveAllMileage('${month}')">💾 Save All Trucks for ${monthLabel(month)}</button>`;
+  window._milTrucks=activeTrucks.map(t=>t.unit_number);
+}
+
+async function writeMileage(truck,month){
+  const key=truck.replace(/[^a-z0-9]/gi,'_');
+  const sv=document.getElementById(`ms-${key}`).value.trim();
+  const ev=document.getElementById(`me-${key}`).value.trim();
+  const start=sv===''?null:parseInt(sv,10);
+  const end=ev===''?null:parseInt(ev,10);
+  if(start==null&&end==null)return'skip';
+  if(start!=null&&end!=null&&end<start)throw new Error(`${truck}: end mileage is lower than start`);
+  const existing=await get('mileage',`?truck=eq.${encodeURIComponent(truck)}&month=eq.${month}`);
+  if(existing.length){
+    await patch('mileage',{starting_mileage:start,ending_mileage:end,updated_at:new Date().toISOString()},`?truck=eq.${encodeURIComponent(truck)}&month=eq.${month}`);
+  }else{
+    await post('mileage',{truck,month,starting_mileage:start,ending_mileage:end});
+  }
+  return'ok';
 }
 
 async function saveMileage(truck,month){
-  const key=truck.replace(/[^a-z0-9]/gi,'_');
-  const start=parseInt(document.getElementById(`ms-${key}`).value)||null;
-  const end=parseInt(document.getElementById(`me-${key}`).value)||null;
   try{
-    const existing=await get('mileage',`?truck=eq.${encodeURIComponent(truck)}&month=eq.${month}`);
-    if(existing.length){
-      await patch('mileage',{starting_mileage:start,ending_mileage:end,updated_at:new Date().toISOString()},`?truck=eq.${encodeURIComponent(truck)}&month=eq.${month}`);
-    }else{
-      await post('mileage',{truck,month,starting_mileage:start,ending_mileage:end});
-    }
+    const r=await writeMileage(truck,month);
+    if(r==='skip'){toast('Nothing entered for '+truck+'.','err');return;}
     toast(`${truck} saved!`,'ok');loadMileage();
-  }catch(e){toast('Error saving mileage.','err');}
+  }catch(e){toast(e.message.includes(':')&&e.message.length<120?e.message:'Error saving '+truck+'. Check your connection and try again.','err');}
+}
+
+async function saveAllMileage(month){
+  const trucks=window._milTrucks||[];
+  let saved=0;const errs=[];
+  for(const t of trucks){
+    try{if(await writeMileage(t,month)==='ok')saved++;}
+    catch(e){errs.push(e.message.length<120?e.message:t);}
+  }
+  if(errs.length)toast(`Saved ${saved}. Problems: ${errs.join(' | ')}`,'err');
+  else toast(`Saved ${saved} truck${saved===1?'':'s'} for ${monthLabel(month)}.`,'ok');
+  loadMileage();
 }
 
 // ─── ADMIN ─────────────────────────────────────────────
