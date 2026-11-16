@@ -179,6 +179,7 @@ tr:hover td{background:rgba(255,255,255,.03);}
     <button class="nav-btn admin-only" onclick="showTab('dashboard')" id="tab-dashboard" style="display:none;">Dashboard</button>
     <button class="nav-btn admin-only" onclick="showTab('matrix')" id="tab-matrix" style="display:none;">Job Matrix</button>
     <button class="nav-btn" onclick="showTab('mileage')" id="tab-mileage">Mileage</button>
+    <button class="nav-btn admin-only" onclick="showTab('milreport')" id="tab-milreport" style="display:none;">Mileage Report</button>
     <button class="nav-btn admin-only" onclick="showTab('admin')" id="tab-admin" style="display:none;">Admin</button>
     <div class="nav-right">
       <span class="nav-user" id="nav-user"></span>
@@ -323,6 +324,32 @@ tr:hover td{background:rgba(255,255,255,.03);}
       <p style="color:var(--muted);font-size:13px;margin-bottom:20px;">Enter each truck's odometer at the end of every month. Start mileage fills in automatically from the last saved month.</p>
       <div id="mil-alert"></div>
       <div id="mileage-content"><p style="color:var(--muted);">Select a month and click Load.</p></div>
+    </div>
+  </div>
+
+  <!-- MILEAGE REPORT (Admin only) -->
+  <div class="page" id="page-milreport">
+    <div class="card">
+      <div class="section-header">
+        <div class="card-title">Mileage Report</div>
+        <div class="toolbar" style="margin-bottom:0;">
+          <span class="filter-lbl">From:</span><input type="month" id="mr-from">
+          <span class="filter-lbl">To:</span><input type="month" id="mr-to">
+          <button class="btn btn-primary btn-sm" onclick="loadMileageReport()">Run</button>
+          <button class="btn btn-secondary btn-sm" id="mr-export-btn" onclick="exportMileageReport()" style="display:none;background:#b8960a;color:#1A1C1F;">↓ Export Excel</button>
+        </div>
+      </div>
+      <details style="margin-bottom:16px;font-size:13px;color:var(--muted);">
+        <summary style="cursor:pointer;color:var(--gold);">How This Works</summary>
+        <ul style="margin:8px 0 0 18px;line-height:1.6;">
+          <li>Pick a start and end month, then click Run.</li>
+          <li>Every truck gets one row. Each month shows the miles driven that month (end minus start).</li>
+          <li>Start Odometer = first month's start reading. End Odometer = last month's end reading. Total = all months added up.</li>
+          <li>A dash means that month wasn't entered yet. Fix it on the Mileage tab.</li>
+          <li>Export Excel downloads the same table as a CSV that opens in Excel.</li>
+        </ul>
+      </details>
+      <div id="milreport-content"><p style="color:var(--muted);">Pick a month range and click Run.</p></div>
     </div>
   </div>
 
@@ -521,6 +548,7 @@ function showTab(name){
   if(name==='dashboard')initDashboard();
   if(name==='matrix')initMatrix();
   if(name==='mileage'){document.getElementById('mil-month').value=monthStr();loadMileage();}
+  if(name==='milreport')initMileageReport();
   if(name==='admin'){renderAdminDispatchers();renderAdminTrucks();}
 }
 
@@ -976,6 +1004,85 @@ async function saveAllMileage(month){
   if(errs.length)toast(`Saved ${saved}. Problems: ${errs.join(' | ')}`,'err');
   else toast(`Saved ${saved} truck${saved===1?'':'s'} for ${monthLabel(month)}.`,'ok');
   loadMileage();
+}
+
+// ─── MILEAGE REPORT ────────────────────────────────────
+function nextMonth(ms){
+  const[y,m]=ms.split('-').map(Number);
+  const d=new Date(y,m,1);
+  return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+function shortMonth(ms){
+  const[y,m]=ms.split('-').map(Number);
+  return new Date(y,m-1,1).toLocaleString('en-US',{month:'short',year:'2-digit'});
+}
+async function initMileageReport(){
+  const last=prevMonth(monthStr());
+  if(!document.getElementById('mr-to').value)document.getElementById('mr-to').value=last;
+  if(!document.getElementById('mr-from').value){
+    let f=last;for(let i=0;i<5;i++)f=prevMonth(f);
+    document.getElementById('mr-from').value=f;
+  }
+  await loadMileageReport();
+}
+let mrData=null;
+async function loadMileageReport(){
+  const from=document.getElementById('mr-from').value;
+  const to=document.getElementById('mr-to').value;
+  const el=document.getElementById('milreport-content');
+  if(!from||!to){toast('Set both months.','err');return;}
+  if(from>to){toast('From month must be before To month.','err');return;}
+  el.innerHTML='<p style="color:var(--muted);">Loading…</p>';
+  let rows;
+  try{rows=await get('mileage',`?month=gte.${from}&month=lte.${to}&order=month.asc`);}
+  catch(e){el.innerHTML='<p style="color:var(--red);">Could not load mileage.</p>';return;}
+  const months=[];for(let m=from;m<=to;m=nextMonth(m))months.push(m);
+  if(!rows.length){el.innerHTML='<p style="color:var(--muted);">No mileage saved in this range.</p>';document.getElementById('mr-export-btn').style.display='none';mrData=null;return;}
+  const trucks=[...new Set(rows.map(r=>r.truck))].sort();
+  const by={};rows.forEach(r=>{(by[r.truck]=by[r.truck]||{})[r.month]=r;});
+  const miles=(r)=>(r&&r.starting_mileage!=null&&r.ending_mileage!=null)?r.ending_mileage-r.starting_mileage:null;
+  const monthTotals=months.map(m=>trucks.reduce((s,t)=>s+(miles(by[t][m])||0),0));
+  const table=trucks.map(t=>{
+    const per=months.map(m=>miles(by[t][m]));
+    const firstRow=months.map(m=>by[t][m]).find(r=>r&&r.starting_mileage!=null);
+    const lastRow=[...months].reverse().map(m=>by[t][m]).find(r=>r&&r.ending_mileage!=null);
+    return{truck:t,per,start:firstRow?firstRow.starting_mileage:null,end:lastRow?lastRow.ending_mileage:null,
+      total:per.reduce((s,v)=>s+(v||0),0),missing:per.filter(v=>v==null).length};
+  });
+  const grand=table.reduce((s,r)=>s+r.total,0);
+  mrData={from,to,months,table,monthTotals,grand};
+  const n=v=>v==null?'—':v.toLocaleString();
+  const missingCount=table.reduce((s,r)=>s+r.missing,0);
+  el.innerHTML=`${missingCount?`<div class="mil-alert"><b>Heads up:</b> ${missingCount} truck-month${missingCount>1?'s are':' is'} missing in this range (shown as —). Totals only count months that were entered.</div>`:''}
+  <div class="matrix-wrap"><table class="matrix-table">
+    <thead><tr><th>Truck</th><th>Start Odometer</th>${months.map(m=>`<th>${shortMonth(m)}</th>`).join('')}<th>End Odometer</th><th>Total Miles</th></tr></thead>
+    <tbody>${table.map(r=>`<tr>
+      <td class="matrix-row-lbl">${esc(r.truck)}</td>
+      <td class="matrix-cell" style="color:var(--muted);">${n(r.start)}</td>
+      ${r.per.map(v=>`<td class="matrix-cell" style="${v==null?'color:var(--amber);':''}">${n(v)}</td>`).join('')}
+      <td class="matrix-cell" style="color:var(--muted);">${n(r.end)}</td>
+      <td class="matrix-cell" style="color:var(--gold);font-weight:800;">${r.total.toLocaleString()}</td>
+    </tr>`).join('')}
+    <tr style="border-top:2px solid var(--gold);">
+      <td style="font-weight:700;color:var(--muted);font-family:'Barlow Condensed',sans-serif;">ALL TRUCKS</td><td></td>
+      ${monthTotals.map(v=>`<td class="matrix-cell" style="color:var(--white);">${v.toLocaleString()}</td>`).join('')}
+      <td></td><td class="matrix-cell" style="color:var(--gold);font-weight:800;">${grand.toLocaleString()}</td>
+    </tr></tbody>
+  </table></div>`;
+  document.getElementById('mr-export-btn').style.display='';
+}
+function exportMileageReport(){
+  if(!mrData){toast('Run the report first.','err');return;}
+  const{from,to,months,table,monthTotals,grand}=mrData;
+  const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const lines=[['Truck','Start Odometer',...months.map(monthLabel),'End Odometer','Total Miles'].map(q).join(',')];
+  table.forEach(r=>lines.push([r.truck,r.start,...r.per,r.end,r.total].map(q).join(',')));
+  lines.push(['ALL TRUCKS','',...monthTotals,'',grand].map(q).join(','));
+  const fname=`TCB_Mileage_${from}_to_${to}.csv`;
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv;charset=utf-8;'}));
+  a.download=fname;a.click();
+  toast('Downloaded '+fname,'ok');
 }
 
 // ─── ADMIN ─────────────────────────────────────────────
