@@ -207,14 +207,6 @@ tr:hover td{background:rgba(255,255,255,.03);}
           <label>Driver *</label>
           <select id="f-driver" onchange="driverOther()">
             <option value="">Select driver…</option>
-            <option>Bob Johnson</option>
-            <option>Tony Meadows</option>
-            <option>Michael Gropp</option>
-            <option>Ron Gibson</option>
-            <option>Raymond Swimm</option>
-            <option>John Foster</option>
-            <option>Andy Davis</option>
-            <option>Hot Shot</option>
             <option value="Other">Other / One-Time Driver</option>
           </select>
           <input type="text" class="other-input" id="f-driver-other" placeholder="Enter driver name…">
@@ -376,6 +368,15 @@ tr:hover td{background:rgba(255,255,255,.03);}
       </div>
     </div>
     <div class="card">
+      <div class="card-title">Drivers</div>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:14px;">These names show in the Driver dropdown on Log Delivery. Removing a driver only takes them off the dropdown. Their past deliveries stay in history and reports.</p>
+      <div class="toolbar" style="margin-bottom:14px;">
+        <input type="text" id="nt-driver" placeholder="Driver full name" style="flex:1;min-width:200px;" onkeydown="if(event.key==='Enter')addDriver()">
+        <button class="btn btn-primary btn-sm" onclick="addDriver()">Add Driver</button>
+      </div>
+      <div id="admin-drivers"><p style="color:var(--muted);">Loading…</p></div>
+    </div>
+    <div class="card">
       <div class="card-title">Dispatcher Accounts</div>
       <div id="admin-dispatchers"><p style="color:var(--muted);">Loading…</p></div>
     </div>
@@ -403,14 +404,6 @@ tr:hover td{background:rgba(255,255,255,.03);}
       <label>Driver</label>
       <select id="em-driver" onchange="editDriverOther()">
         <option value="">Select driver…</option>
-        <option>Bob Johnson</option>
-        <option>Tony Meadows</option>
-        <option>Michael Gropp</option>
-        <option>Ron Gibson</option>
-        <option>Raymond Swimm</option>
-        <option>John Foster</option>
-        <option>Andy Davis</option>
-        <option>Hot Shot</option>
         <option value="Other">Other / One-Time Driver</option>
       </select>
       <input type="text" class="other-input" id="em-driver-other" placeholder="Enter driver name…">
@@ -505,10 +498,18 @@ function doLogout(){
 
 // ─── DROPDOWNS ─────────────────────────────────────────
 async function loadDropdowns(){
-  const[trucks,trailers]=await Promise.all([
+  const[trucks,trailers,drivers]=await Promise.all([
     get('trucks','?active=eq.true&order=unit_number.asc'),
-    get('trailers','?active=eq.true&order=trailer_number.asc')
+    get('trailers','?active=eq.true&order=trailer_number.asc'),
+    get('delivery_drivers','?active=eq.true&order=name.asc')
   ]);
+  REGULAR_DRIVERS=drivers.map(d=>d.name);
+  ['f-driver','em-driver'].forEach(id=>{
+    const s=document.getElementById(id);if(!s)return;
+    const keep=s.value;
+    s.innerHTML='<option value="">Select driver…</option>'+drivers.map(d=>`<option>${esc(d.name)}</option>`).join('')+'<option value="Other">Other / One-Time Driver</option>';
+    if(keep&&[...s.options].some(o=>o.value===keep))s.value=keep;
+  });
   ['f-truck','em-truck'].forEach(id=>{
     const s=document.getElementById(id);if(!s)return;
     s.innerHTML='<option value="">Select truck…</option>'+trucks.map(t=>`<option>${esc(t.unit_number)}</option>`).join('')+'<option value="Other">Other / Rental</option>';
@@ -549,7 +550,7 @@ function showTab(name){
   if(name==='matrix')initMatrix();
   if(name==='mileage'){document.getElementById('mil-month').value=monthStr();loadMileage();}
   if(name==='milreport')initMileageReport();
-  if(name==='admin'){renderAdminDispatchers();renderAdminTrucks();}
+  if(name==='admin'){renderAdminDrivers();renderAdminDispatchers();renderAdminTrucks();}
 }
 
 // ─── ON TIME ───────────────────────────────────────────
@@ -634,7 +635,7 @@ async function loadHistory(){
 }
 
 // ─── EDIT MODAL ────────────────────────────────────────
-const REGULAR_DRIVERS=['Bob Johnson','Tony Meadows','Michael Gropp','Ron Gibson','Raymond Swimm','John Foster','Andy Davis','Hot Shot'];
+let REGULAR_DRIVERS=[];
 
 async function openEditModal(id){
   editingId=id;
@@ -702,9 +703,9 @@ async function saveEdit(){
 async function initDashboard(){
   document.getElementById('d-from').value=firstOfMonth();
   document.getElementById('d-to').value=today();
-  const dispatchers=await get('dispatchers','?active=eq.true&order=full_name.asc');
+  if(!REGULAR_DRIVERS.length)await loadDropdowns();
   document.getElementById('d-driver').innerHTML='<option value="">All Drivers</option>'+
-    [...new Set(['Bob Johnson','Tony Meadows','Michael Gropp','Ron Gibson','Raymond Swimm','John Foster','Andy Davis','Hot Shot'])].map(d=>`<option>${esc(d)}</option>`).join('');
+    REGULAR_DRIVERS.map(d=>`<option>${esc(d)}</option>`).join('');
   await loadDashboard();
 }
 
@@ -1134,6 +1135,35 @@ async function saveDispatcher(){
 async function toggleDispatcher(id,active){
   try{await patch('dispatchers',{active:!active},`?id=eq.${id}`);renderAdminDispatchers();}
   catch(e){toast('Error.','err');}
+}
+async function renderAdminDrivers(){
+  const el=document.getElementById('admin-drivers');
+  try{
+    const drivers=await get('delivery_drivers','?active=eq.true&order=name.asc');
+    el.innerHTML=drivers.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:0 20px;">${drivers.map(d=>`
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--silver);">
+        <span>${esc(d.name)}</span>
+        <button class="btn btn-secondary btn-sm" onclick="removeDriver('${d.id}','${esc(d.name)}')">Remove</button>
+      </div>`).join('')}</div>`:'<p style="color:var(--muted);">No drivers yet. Add one above.</p>';
+  }catch(e){el.innerHTML='<p style="color:var(--red);">Could not load drivers.</p>';}
+}
+async function addDriver(){
+  const name=document.getElementById('nt-driver').value.trim().replace(/\s+/g,' ');
+  if(!name){toast('Enter a driver name.','err');return;}
+  try{
+    const ex=await get('delivery_drivers',`?name=ilike.${encodeURIComponent(name)}`);
+    if(ex.length){
+      if(ex[0].active){toast(`${ex[0].name} is already on the list.`,'err');return;}
+      await patch('delivery_drivers',{active:true},`?id=eq.${ex[0].id}`);
+    }else await post('delivery_drivers',{name,active:true});
+    toast(`${name} added!`,'ok');document.getElementById('nt-driver').value='';
+    loadDropdowns();renderAdminDrivers();
+  }catch(e){toast('Could not add driver.','err');}
+}
+async function removeDriver(id,name){
+  if(!confirm(`Remove ${name} from the driver list?\n\nTheir past deliveries will stay in history.`))return;
+  try{await sb('DELETE','delivery_drivers',null,`?id=eq.${id}`);toast(`${name} removed.`,'ok');loadDropdowns();renderAdminDrivers();}
+  catch(e){toast('Could not remove driver.','err');}
 }
 async function addTruck(){
   const num=document.getElementById('nt-truck').value.trim().toUpperCase();
